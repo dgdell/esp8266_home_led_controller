@@ -77,34 +77,39 @@ def client():
             print('waiting for wirelss connected')
             print(wlan.ifconfig()[0])
             time.sleep(1)
-    ip = str(wlan.ifconfig()[0])
+    #led server ip address
+    ip = '192.168.101.111'
 
     #定义gpio的pin为输入
-    n = 2
+    n = 16
     p_nu = Pin(n, Pin.IN)
+    #记录pin的旧value
     p_nu_v = p_nu.value()
-    content = b'%a'
-    print('first check gpio{} value is {}'.format(n, p_nu_v))
+    #关于bytes的格式化问题，参考https://mail.python.org/pipermail/python-dev/2014-March/133621.html
+    content = b'%s'
+    print('First check gpio{} value is {}'.format(n, p_nu_v))
     #执行首次发送
     s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.connect((ip, 80))
+    print('First power switch {}'.format(p_nu_v))
     s.send(content % p_nu_v)
     data = s.recv(1024)
     print('Received', repr(data))
     s.close()
     #执行状态检测并发送
     while True:
-        s = socket.socket()
-        s.connect((ip, 80))
-        while True:
-            if p_nu_v == p_nu.value():
-                print('gpio value not change, standying by {}'.format(p_nu_v))
-                time.sleep(1)
-            else:
-                print('gpio value changed {}'.format(p_nu_v))
-                s.send(content % p_nu_v)
-                data = s.recv(1024)
-                print('Received', repr(data))
-                s.close()
-
-server()
+        #新旧value对比，避免频繁发送数据
+        if p_nu_v == p_nu.value():
+            print('>>gpio value not change, standying by {}'.format(p_nu_v))
+            time.sleep(1)
+        else:
+            s = socket.socket()
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.connect((ip, 80))
+            p_nu_v = p_nu.value()
+            print('<<gpio value changed {}, power switch!'.format(p_nu_v))
+            s.send(content % p_nu_v)
+            data = s.recv(1024)
+            print('Received', repr(data))
+            s.close()
