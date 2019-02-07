@@ -1,36 +1,22 @@
-def gpio_c(sw):
-    #gpio电平控制函数
-    from machine import Pin
-    #gpio端口号，连接到继电器
-    n = 2
-    p_n = Pin(n, Pin.OUT)
-    #根据状态执行操作，数值可能会反
-    if sw == b'1':
-        p_n.on()
-        print('>>power on')
-    elif sw == b'0':
-        print('>>power off')
-        p_n.off()
+import socket
+import time
+import network
+from machine import Pin
+    
+#检测网络是否已连接
+wlan = network.WLAN(network.STA_IF)
+while True:
+    if len(wlan.ifconfig()[0]) > 7:
+        print(wlan.ifconfig()[0])
+        break
     else:
-        print('<<<wrong gpio status.')
-
+        print('waiting for wirelss connected')
+        print(wlan.ifconfig()[0])
+        time.sleep(1)
+ip = str(wlan.ifconfig()[0])
 
 def server():
-    #socket服务端，接收数据，根据数据来执行gpio_c(sw)函数操作继电器
-    import socket
-    import time
-    import network
-    #检测网络是否已连接
-    wlan = network.WLAN(network.STA_IF)
-    while True:
-        if len(wlan.ifconfig()[0]) > 7:
-            print(wlan.ifconfig()[0])
-            break
-        else:
-            print('waiting for wirelss connected')
-            print(wlan.ifconfig()[0])
-            time.sleep(1)
-    ip = str(wlan.ifconfig()[0])
+    #socket服务端，接收数据来操作继电器
     try:
         while True:
             s = socket.socket()
@@ -43,45 +29,40 @@ def server():
             
             s.bind(addr)
             s.listen(5)
-            print("Listening: {}:80, standying by.".format(ip))
+            print("Listening: {}:80, standing by.".format(ip))
             #开始循环接收
             while True:
                 res = s.accept()
                 client_s = res[0]
                 client_addr = res[1]
-                print("Client address:", client_addr)
+                print("From:", client_addr)
                 #print("Client socket:", client_s)
                 req = client_s.recv(512)
-                print("Request:")
-                print('<<<', req) 
-                #bytes的format格式，发送pin的value
-                gpio_c(req)
-                client_s.send(req)
+                #req为bytes的format格式，发送pin的value
+                #2为pin端口号
+                p_n = Pin(2, Pin.OUT)
+                #根据状态执行操作，数值可能会反
+                if req == b'1':
+                    pow_s = 'power on'
+                    p_n.on()
+                elif req == b'0':
+                    pow_s = 'power off'
+                    p_n.off()
+                else:
+                    pow_s = 'error'
+                    print('error request')
+                print('<<<{}<<<'.format(pow_s), req) 
+
+                client_s.send(b'standing by\nserver gpio status: %s' % p_n.value())
                 client_s.close()
     except OSError:
         time.sleep(1)
         server()
 
 def client():
-    import socket
-    import time
-    from machine import Pin
-    import network
-
-    #检测网络是否已连接
-    wlan = network.WLAN(network.STA_IF)
-    while True:
-        if len(wlan.ifconfig()[0]) > 7:
-            print(wlan.ifconfig()[0])
-            break
-        else:
-            print('waiting for wirelss connected')
-            print(wlan.ifconfig()[0])
-            time.sleep(1)
     try:
         #led server ip address
-        ip = '192.168.101.111'
-
+        s_ip = '192.168.101.111'
         #定义gpio的pin为输入
         n = 16
         p_nu = Pin(n, Pin.IN)
@@ -92,7 +73,7 @@ def client():
         #执行首次发送
         s = socket.socket()
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.connect((ip, 80))
+        s.connect((s_ip, 80))
         print('First power switch {}'.format(p_nu_v))
         s.send(content % p_nu_v)
         data = s.recv(1024)
@@ -102,12 +83,12 @@ def client():
         while True:
             #新旧value对比，避免频繁发送数据
             if p_nu_v == p_nu.value():
-                print('>>gpio value not change, standying by {}'.format(p_nu_v))
+                print('>>gpio value not change, standing by {}'.format(p_nu_v))
                 time.sleep(1)
             else:
                 s = socket.socket()
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.connect((ip, 80))
+                s.connect((s_ip, 80))
                 p_nu_v = p_nu.value()
                 print('<<gpio value changed {}, power switch!'.format(p_nu_v))
                 s.send(content % p_nu_v)
@@ -115,7 +96,6 @@ def client():
                 print('Received', repr(data))
                 s.close()
     except OSError:
-            #os错误过度会出现RuntimeError: maximum recursion depth exceeded的错误，添加一个等待时间可以自己掌控
             time.sleep(1)
             client()
 
