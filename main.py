@@ -42,61 +42,82 @@ def server():
                 #2为pin端口号
                 p_n = Pin(2, Pin.OUT)
                 #根据状态执行操作，数值可能会反
+                print('<<<', req) 
                 if req == b'1':
-                    pow_s = 'power on'
                     p_n.on()
                 elif req == b'0':
-                    pow_s = 'power off'
                     p_n.off()
                 else:
-                    pow_s = 'error'
-                    print('error request')
-                print('<<<{}<<<'.format(pow_s), req) 
-
+                    pass
                 client_s.send(b'standing by\nserver gpio status: %s' % p_n.value())
                 client_s.close()
     except OSError:
         time.sleep(1)
         server()
 
+def notice_led(v):
+    #led指示灯函数
+    led = Pin(16, Pin.OUT)
+    if v == 0:
+        print('power on, standing by')
+        led.on()
+    elif v == 1:
+        print('power off, standing by')
+        led.off()
+    else:
+        pass
+
 def client():
+    #pin14为输入，pin16为指示灯输出
     try:
         #led server ip address
         s_ip = '192.168.101.111'
         #定义gpio的pin为输入
-        n = 16
-        p_nu = Pin(n, Pin.IN)
-        #记录pin的旧value
-        p_nu_v = p_nu.value()
+        button = Pin(14, Pin.IN, Pin.PULL_UP)
+        #记录gpio初始value此处参见这里的解释：
+        # The value function returns the current level of the pin,
+        # either 1 for a high logic level or 0 for a low logic level.
+        # Notice how the button is at a high level (value returns 1) when
+        # it's not pressed. This is because the pull-up resistor keeps the pin at
+        # a high level when it's not connected to ground through the button.
+        # When the button is pressed then the input pin connects to ground
+        # and reads a low level (value returns 0).
+        button_v = button.value()
         content = b'%s'
-        print('First check gpio{} value is {}'.format(n, p_nu_v))
+        print('First check gpio 14 value is {}'.format(button_v))
         #执行首次发送
         s = socket.socket()
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        #设置socket超时时间
+        s.settimeout(5)
         s.connect((s_ip, 80))
-        print('First power switch {}'.format(p_nu_v))
-        s.send(content % p_nu_v)
+        s.settimeout(None)
+        print('First power switch {}'.format(button_v))
+        s.send(content % button_v)
         data = s.recv(1024)
         print('Received', repr(data))
         s.close()
+        notice_led(button_v)
         #执行状态检测并发送
         while True:
             #新旧value对比，避免频繁发送数据
-            if p_nu_v == p_nu.value():
-                print('>>gpio value not change, standing by {}'.format(p_nu_v))
-                time.sleep(1)
+            if button_v == button.value():
+                time.sleep(0.5)
+                pass                
             else:
                 s = socket.socket()
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.settimeout(5)
                 s.connect((s_ip, 80))
-                p_nu_v = p_nu.value()
-                print('<<gpio value changed {}, power switch!'.format(p_nu_v))
-                s.send(content % p_nu_v)
+                s.settimeout(None)
+                button_v = button.value()
+                print('<<gpio value changed {}, turn on switch!'.format(button_v))
+                s.send(content % button_v)
                 data = s.recv(1024)
                 print('Received', repr(data))
                 s.close()
-    except OSError:
-            time.sleep(1)
-            client()
-
-server()
+                notice_led(button_v)
+    except (OSError) as Argument:
+        print(Argument)
+        time.sleep(1)
+        client()
